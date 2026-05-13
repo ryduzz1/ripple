@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ripple</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell shell-enter">
+      <header class="topbar">
+        <div id="tabBar" class="tabbar" role="tablist" aria-label="Ripple sections">
+          <button class="tab-button active" data-tab-id="timeline" role="tab" aria-selected="true">Timeline</button>
+          <button class="tab-button" data-tab-id="tools" role="tab" aria-selected="false">Tools</button>
+          <button class="tab-button" data-tab-id="settings" role="tab" aria-selected="false">Settings</button>
+        </div>
+      </header>
+
+      <div class="actionbar">
+        <h1>Ripple</h1>
+        <button id="refreshComp" class="icon-button" aria-label="Refresh active comp" title="Refresh active comp">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 6v5h-5" />
+            <path d="M4 18v-5h5" />
+            <path d="M18 10a6.5 6.5 0 0 0-11-3l-3 3" />
+            <path d="M6 14a6.5 6.5 0 0 0 11 3l3-3" />
+          </svg>
+        </button>
+        <button id="splitAtPlayhead" class="apply">Split</button>
+      </div>
+
+      <main class="panel-shell">
+        <section id="timelineView" class="view active-view" data-view-id="timeline">
+          <div class="comp-card">
+            <div>
+              <p class="eyebrow">Active Comp</p>
+              <h2 id="compName">No comp selected</h2>
+            </div>
+            <div class="comp-stats">
+              <span id="compDuration">0:00</span>
+              <span id="compFps">0 fps</span>
+            </div>
+          </div>
+
+          <div class="timeline-toolbar">
+            <div class="tool-group">
+              <button class="chip active" data-snap="cuts">Cuts</button>
+              <button class="chip" data-snap="markers">Markers</button>
+              <button class="chip" data-snap="playhead">Playhead</button>
+            </div>
+            <label class="zoom-control">
+              <span>Zoom</span>
+              <input id="zoomRange" type="range" min="70" max="180" value="100" />
+            </label>
+          </div>
+
+          <div class="timeline-frame">
+            <div class="ruler" id="timeRuler"></div>
+            <div class="playhead" id="playhead"></div>
+            <div id="layerList" class="layer-list"></div>
+            <div id="emptyState" class="empty-state">
+              <h3>Open a comp to build the timeline.</h3>
+              <p>Ripple reads the active composition and turns AE layers into cleaner editorial lanes.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="toolsView" class="view" data-view-id="tools">
+          <div class="tool-tile-grid">
+            <button class="tool-tile" data-command="trimStartToPlayhead">
+              <span class="tool-title">Trim Start</span>
+              <span class="tool-copy">Move selected layer starts to the current playhead.</span>
+            </button>
+            <button class="tool-tile" data-command="trimEndToPlayhead">
+              <span class="tool-title">Trim End</span>
+              <span class="tool-copy">Move selected layer ends to the current playhead.</span>
+            </button>
+            <button class="tool-tile" data-command="closeGaps">
+              <span class="tool-title">Close Gaps</span>
+              <span class="tool-copy">Sequence visible comp layers into a clean editorial run.</span>
+            </button>
+            <button class="tool-tile" data-command="sequenceSelected">
+              <span class="tool-title">Sequence Selected</span>
+              <span class="tool-copy">Place selected layers end to start from the playhead.</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="settingsView" class="view" data-view-id="settings">
+          <section class="settings-card">
+            <div>
+              <p class="eyebrow">Display</p>
+              <h2>Timeline Preferences</h2>
+            </div>
+            <label class="checkbox-field">
+              <input id="showMuted" type="checkbox" checked />
+              <span>Show disabled and muted layers</span>
+            </label>
+            <label class="checkbox-field">
+              <input id="showBadges" type="checkbox" checked />
+              <span>Show layer type badges</span>
+            </label>
+            <label class="checkbox-field">
+              <input id="compactRows" type="checkbox" />
+              <span>Use compact layer rows</span>
+            </label>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

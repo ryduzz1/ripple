@@ -1,0 +1,8 @@
+.DS_Store
+dist/
+release/
+*.zip
+*.p12
+*.pfx
+*.log
+node_modules/
