@@ -21,21 +21,18 @@ const fallbackSnapshot = {
 
 const state = {
   snapshot: null,
-  view: "timeline",
-  zoom: 100,
   showMuted: true,
   showBadges: true,
   compactRows: false
 };
 
 const els = {
-  tabBar: document.getElementById("tabBar"),
   refreshComp: document.getElementById("refreshComp"),
+  openSettings: document.getElementById("openSettings"),
+  closeSettings: document.getElementById("closeSettings"),
+  settingsOverlay: document.getElementById("settingsOverlay"),
+  settingsBackdrop: document.getElementById("settingsBackdrop"),
   splitAtPlayhead: document.getElementById("splitAtPlayhead"),
-  compName: document.getElementById("compName"),
-  compDuration: document.getElementById("compDuration"),
-  compFps: document.getElementById("compFps"),
-  zoomRange: document.getElementById("zoomRange"),
   timeRuler: document.getElementById("timeRuler"),
   playhead: document.getElementById("playhead"),
   layerList: document.getElementById("layerList"),
@@ -43,7 +40,8 @@ const els = {
   showMuted: document.getElementById("showMuted"),
   showBadges: document.getElementById("showBadges"),
   compactRows: document.getElementById("compactRows"),
-  toast: document.getElementById("toast")
+  toast: document.getElementById("toast"),
+  toolTip: document.getElementById("toolTip")
 };
 
 function getCSInterface() {
@@ -122,7 +120,6 @@ function loadUiState() {
     Object.assign(state, saved);
   } catch (error) {}
 
-  els.zoomRange.value = state.zoom;
   els.showMuted.checked = state.showMuted;
   els.showBadges.checked = state.showBadges;
   els.compactRows.checked = state.compactRows;
@@ -130,8 +127,6 @@ function loadUiState() {
 
 function saveUiState() {
   localStorage.setItem(UI_STATE_KEY, JSON.stringify({
-    view: state.view,
-    zoom: state.zoom,
     showMuted: state.showMuted,
     showBadges: state.showBadges,
     compactRows: state.compactRows
@@ -140,26 +135,58 @@ function saveUiState() {
 
 function showToast(message) {
   els.toast.textContent = message;
+  els.toast.classList.remove("is-hiding");
   els.toast.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    els.toast.classList.add("is-visible");
+  });
   window.clearTimeout(showToast.timeout);
+  window.clearTimeout(showToast.hideTimeout);
   showToast.timeout = window.setTimeout(() => {
-    els.toast.classList.add("hidden");
+    hideToast();
   }, 2600);
 }
 
-function setView(viewId) {
-  state.view = viewId;
-  document.querySelectorAll(".tab-button").forEach((button) => {
-    const active = button.dataset.tabId === viewId;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-  });
+function hideToast() {
+  els.toast.classList.remove("is-visible");
+  els.toast.classList.add("is-hiding");
+  window.clearTimeout(showToast.hideTimeout);
+  showToast.hideTimeout = window.setTimeout(() => {
+    els.toast.classList.add("hidden");
+    els.toast.classList.remove("is-hiding");
+  }, 190);
+}
 
-  document.querySelectorAll(".view").forEach((view) => {
-    view.classList.toggle("active-view", view.dataset.viewId === viewId);
-  });
+function setSettingsOpen(isOpen) {
+  els.settingsOverlay.classList.toggle("hidden", !isOpen);
+}
 
-  saveUiState();
+function showToolTip(button) {
+  const label = button.getAttribute("aria-label") || button.getAttribute("title");
+  if (!label) {
+    return;
+  }
+
+  const rect = button.getBoundingClientRect();
+  els.toolTip.textContent = label;
+  els.toolTip.style.left = `${rect.right + 8}px`;
+  els.toolTip.style.top = `${rect.top + rect.height / 2}px`;
+  els.toolTip.classList.remove("is-hiding");
+  els.toolTip.classList.remove("hidden");
+  window.clearTimeout(showToolTip.hideTimeout);
+  requestAnimationFrame(() => {
+    els.toolTip.classList.add("is-visible");
+  });
+}
+
+function hideToolTip() {
+  els.toolTip.classList.remove("is-visible");
+  els.toolTip.classList.add("is-hiding");
+  window.clearTimeout(showToolTip.hideTimeout);
+  showToolTip.hideTimeout = window.setTimeout(() => {
+    els.toolTip.classList.add("hidden");
+    els.toolTip.classList.remove("is-hiding");
+  }, 150);
 }
 
 function renderRuler(comp, timelineWidth) {
@@ -178,9 +205,6 @@ function renderRuler(comp, timelineWidth) {
 function renderTimeline() {
   const snapshot = state.snapshot;
   if (!snapshot || !snapshot.ok || !snapshot.comp) {
-    els.compName.textContent = "No comp selected";
-    els.compDuration.textContent = "0:00";
-    els.compFps.textContent = "0 fps";
     els.layerList.innerHTML = "";
     els.emptyState.style.display = "grid";
     return;
@@ -189,12 +213,9 @@ function renderTimeline() {
   const comp = snapshot.comp;
   const layers = (snapshot.layers || []).filter((layer) => state.showMuted || layer.enabled);
   const duration = Math.max(1, comp.duration || 1);
-  const timelineWidth = Math.round(Math.max(520, duration * 42 * (state.zoom / 100)));
+  const timelineWidth = Math.round(Math.max(520, duration * 42));
   const playheadLeft = 148 + Math.max(0, Math.min(1, (comp.currentTime || 0) / duration)) * timelineWidth;
 
-  els.compName.textContent = comp.name || "Active Comp";
-  els.compDuration.textContent = formatTime(duration);
-  els.compFps.textContent = `${Math.round(comp.frameRate || 0)} fps`;
   els.playhead.style.left = `${playheadLeft}px`;
   els.layerList.style.width = `${timelineWidth + 140}px`;
   els.layerList.classList.toggle("compact", state.compactRows);
@@ -249,32 +270,21 @@ async function runCommand(command) {
 }
 
 function bindEvents() {
-  els.tabBar.addEventListener("click", (event) => {
-    const button = event.target.closest(".tab-button");
-    if (button) {
-      setView(button.dataset.tabId);
-    }
-  });
-
-  document.querySelectorAll(".chip").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll(".chip").forEach((chip) => chip.classList.remove("active"));
-      button.classList.add("active");
-      showToast(`Snapping to ${button.textContent.toLowerCase()} is ready for the editing pass.`);
-    });
-  });
-
   els.refreshComp.addEventListener("click", refreshTimeline);
+  els.openSettings.addEventListener("click", () => setSettingsOpen(true));
+  els.closeSettings.addEventListener("click", () => setSettingsOpen(false));
+  els.settingsBackdrop.addEventListener("click", () => setSettingsOpen(false));
   els.splitAtPlayhead.addEventListener("click", () => runCommand("splitAtPlayhead"));
 
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.addEventListener("click", () => runCommand(button.dataset.command));
   });
 
-  els.zoomRange.addEventListener("input", () => {
-    state.zoom = Number(els.zoomRange.value);
-    saveUiState();
-    renderTimeline();
+  document.querySelectorAll(".side-toolbar .icon-button").forEach((button) => {
+    button.addEventListener("mouseenter", () => showToolTip(button));
+    button.addEventListener("focus", () => showToolTip(button));
+    button.addEventListener("mouseleave", hideToolTip);
+    button.addEventListener("blur", hideToolTip);
   });
 
   els.showMuted.addEventListener("change", () => {
@@ -298,5 +308,4 @@ function bindEvents() {
 
 loadUiState();
 bindEvents();
-setView(state.view);
 refreshTimeline();
