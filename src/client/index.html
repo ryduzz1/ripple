@@ -7,21 +7,22 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body tabindex="-1">
+    <input id="keySink" class="key-sink" type="text" aria-hidden="true" tabindex="0" autocomplete="off" spellcheck="false" readonly />
     <div class="shell shell-enter">
       <main class="panel-shell">
         <div class="timeline-frame" tabindex="0">
           <div class="ruler" id="timeRuler"></div>
-          <div class="playhead" id="playhead"></div>
+          <button class="playhead" id="playhead" type="button" aria-label="Drag playhead"></button>
           <div id="snapGuide" class="snap-guide hidden"></div>
           <div id="layerList" class="layer-list"></div>
           <div id="emptyState" class="empty-state">
-            <h3>Open a comp to build the timeline.</h3>
-            <p>Ripple reads the active composition and turns AE layers into cleaner editorial lanes.</p>
+            <h3 id="emptyTitle">Open a comp to build the timeline.</h3>
+            <p id="emptyMessage">Ripple reads the active composition and turns AE layers into cleaner editorial lanes.</p>
           </div>
         </div>
 
         <aside class="side-toolbar" aria-label="Timeline tools">
-          <button id="splitAtPlayhead" class="icon-button active-tool" aria-label="Split at playhead" title="Split at playhead">
+          <button id="splitAtPlayhead" class="icon-button active-tool" aria-label="Split at playhead" title="Split at playhead (S)">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M14 8l6-6" />
               <path d="M14 16l6 6" />
@@ -31,7 +32,7 @@
               <path d="M8.5 14.5L20 22" />
             </svg>
           </button>
-          <button class="icon-button" data-command="trimStartToPlayhead" aria-label="Trim in to playhead" title="Trim in to playhead">
+          <button class="icon-button" data-command="trimStartToPlayhead" aria-label="Trim in to playhead" title="Trim in to playhead ([)">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 4v16" />
               <path d="M18 7H9" />
@@ -39,29 +40,12 @@
               <path d="M18 17H9" />
             </svg>
           </button>
-          <button class="icon-button" data-command="trimEndToPlayhead" aria-label="Trim out to playhead" title="Trim out to playhead">
+          <button class="icon-button" data-command="trimEndToPlayhead" aria-label="Trim out to playhead" title="Trim out to playhead (])">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M18 4v16" />
               <path d="M6 7h9" />
               <path d="M12 4l3 3-3 3" />
               <path d="M6 17h9" />
-            </svg>
-          </button>
-          <button class="icon-button" data-command="sequenceSelected" aria-label="Sequence selected layers" title="Sequence selected layers">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 6h8" />
-              <path d="M11 12h8" />
-              <path d="M5 18h8" />
-              <path d="M15 6l4 6-4 6" />
-            </svg>
-          </button>
-          <button class="icon-button" data-command="closeGaps" aria-label="Close gaps" title="Close gaps">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h6" />
-              <path d="M14 7h6" />
-              <path d="M10 4l3 3-3 3" />
-              <path d="M14 4l-3 3 3 3" />
-              <path d="M4 17h16" />
             </svg>
           </button>
           <div class="side-toolbar-spacer"></div>
@@ -117,6 +101,7 @@
 
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     <div id="toolTip" class="tool-tip hidden" role="tooltip"></div>
+    <div id="dragReadout" class="drag-readout hidden" aria-hidden="true"></div>
 
     <script src="./app.js"></script>
   </body>

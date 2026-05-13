@@ -7,6 +7,7 @@ const AUTO_SCROLL_EDGE_PX = 34;
 const AUTO_SCROLL_STEP_PX = 22;
 const BASE_PX_PER_SECOND = 42;
 const MAX_ZOOM = 260;
+const AUTO_SYNC_INTERVAL_MS = 500;
 
 const fallbackSnapshot = {
   ok: true,
@@ -35,10 +36,15 @@ const state = {
   compactRows: false,
   enableSnapping: true,
   didFitInitialComp: false,
-  drag: null
+  drag: null,
+  playheadDrag: null,
+  lastShortcut: null,
+  lastSnapshotSignature: "",
+  syncInFlight: false
 };
 
 const els = {
+  keySink: document.getElementById("keySink"),
   refreshComp: document.getElementById("refreshComp"),
   openSettings: document.getElementById("openSettings"),
   closeSettings: document.getElementById("closeSettings"),
@@ -51,12 +57,15 @@ const els = {
   snapGuide: document.getElementById("snapGuide"),
   layerList: document.getElementById("layerList"),
   emptyState: document.getElementById("emptyState"),
+  emptyTitle: document.getElementById("emptyTitle"),
+  emptyMessage: document.getElementById("emptyMessage"),
   showMuted: document.getElementById("showMuted"),
   showBadges: document.getElementById("showBadges"),
   compactRows: document.getElementById("compactRows"),
   enableSnapping: document.getElementById("enableSnapping"),
   toast: document.getElementById("toast"),
-  toolTip: document.getElementById("toolTip")
+  toolTip: document.getElementById("toolTip"),
+  dragReadout: document.getElementById("dragReadout")
 };
 
 function getCSInterface() {
@@ -68,10 +77,14 @@ function getCSInterface() {
 
 function registerCepKeyEvents() {
   const keyEvents = [
-    { keyCode: 37 },
-    { keyCode: 39 },
-    { keyCode: 37, shiftKey: true },
-    { keyCode: 39, shiftKey: true }
+    { keyCode: 37, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+    { keyCode: 39, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+    { keyCode: 37, ctrlKey: false, altKey: false, shiftKey: true, metaKey: false },
+    { keyCode: 39, ctrlKey: false, altKey: false, shiftKey: true, metaKey: false },
+    { keyCode: 83, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+    { keyCode: 83, ctrlKey: false, altKey: false, shiftKey: true, metaKey: false },
+    { keyCode: 219, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+    { keyCode: 221, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }
   ];
 
   try {
@@ -92,6 +105,12 @@ function registerCepKeyEvents() {
 function evalHost(script) {
   const csInterface = getCSInterface();
   if (!csInterface) {
+    if (window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === "function") {
+      return new Promise((resolve) => {
+        window.__adobe_cep__.evalScript(script, (result) => resolve(result));
+      });
+    }
+
     return Promise.resolve(runFallbackHost(script));
   }
 
@@ -194,6 +213,11 @@ function runFallbackHost(script) {
     return JSON.stringify({ ok: true, message: "Trimmed layer." });
   }
 
+  if (method === "setCompTime") {
+    fallbackSnapshot.comp.currentTime = Math.max(0, Math.min(fallbackSnapshot.comp.duration, Number(payload.time) || 0));
+    return JSON.stringify({ ok: true, message: "Moved playhead." });
+  }
+
   return JSON.stringify(fallbackSnapshot);
 }
 
@@ -224,6 +248,24 @@ function formatTime(seconds) {
   const mins = Math.floor(safeSeconds / 60);
   const secs = Math.floor(safeSeconds % 60).toString().padStart(2, "0");
   return `${mins}:${secs}`;
+}
+
+function formatTimecode(seconds) {
+  const frameRate = getFrameRate();
+  const safeFrames = Math.max(0, Math.round((Number(seconds) || 0) * frameRate));
+  const totalSeconds = Math.floor(safeFrames / frameRate);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = (totalSeconds % 60).toString().padStart(2, "0");
+  const frames = (safeFrames % frameRate).toString().padStart(2, "0");
+  return `${mins}:${secs}:${frames}`;
+}
+
+function formatFrameDelta(seconds) {
+  const frames = Math.round((Number(seconds) || 0) * getFrameRate());
+  if (frames === 0) {
+    return "0f";
+  }
+  return `${frames > 0 ? "+" : ""}${frames}f`;
 }
 
 function layerTypeLabel(type) {
@@ -320,7 +362,7 @@ function setSettingsOpen(isOpen) {
 }
 
 function showToolTip(button) {
-  const label = button.getAttribute("aria-label") || button.getAttribute("title");
+  const label = button.getAttribute("title") || button.getAttribute("aria-label");
   if (!label) {
     return;
   }
@@ -345,6 +387,41 @@ function hideToolTip() {
     els.toolTip.classList.add("hidden");
     els.toolTip.classList.remove("is-hiding");
   }, 150);
+}
+
+function showDragReadout(event, label, timeText, deltaText) {
+  els.dragReadout.innerHTML = `
+    <span class="drag-readout-label">${escapeHtml(label)}</span>
+    <span class="drag-readout-time">${escapeHtml(timeText)}</span>
+    <span class="drag-readout-delta">${escapeHtml(deltaText)}</span>
+  `;
+  moveDragReadout(event);
+  els.dragReadout.classList.remove("is-hiding");
+  els.dragReadout.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    els.dragReadout.classList.add("is-visible");
+  });
+}
+
+function moveDragReadout(event) {
+  const offsetX = 12;
+  const offsetY = -38;
+  const maxLeft = window.innerWidth - 16;
+  const minTop = 8;
+  const left = Math.min(maxLeft, event.clientX + offsetX);
+  const top = Math.max(minTop, event.clientY + offsetY);
+  els.dragReadout.style.left = `${left}px`;
+  els.dragReadout.style.top = `${top}px`;
+}
+
+function hideDragReadout() {
+  els.dragReadout.classList.remove("is-visible");
+  els.dragReadout.classList.add("is-hiding");
+  window.clearTimeout(hideDragReadout.timeout);
+  hideDragReadout.timeout = window.setTimeout(() => {
+    els.dragReadout.classList.add("hidden");
+    els.dragReadout.classList.remove("is-hiding");
+  }, 130);
 }
 
 function getCompDuration() {
@@ -465,6 +542,46 @@ function hideSnapGuide() {
   els.snapGuide.classList.add("hidden");
 }
 
+function setEmptyState(title, message) {
+  els.emptyTitle.textContent = title;
+  els.emptyMessage.textContent = message;
+  els.emptyState.style.display = "grid";
+}
+
+function getSnapshotSignature(snapshot) {
+  if (!snapshot || !snapshot.ok || !snapshot.comp) {
+    return snapshot && snapshot.error ? `error:${snapshot.error}` : "empty";
+  }
+
+  const comp = snapshot.comp;
+  const frameRate = Math.max(1, comp.frameRate || 30);
+  const currentFrame = Math.round((comp.currentTime || 0) * frameRate);
+  const compParts = [
+    comp.name,
+    comp.duration,
+    comp.frameRate,
+    currentFrame,
+    comp.workAreaStart,
+    comp.workAreaDuration
+  ];
+  const layerParts = (snapshot.layers || []).map((layer) => [
+    layer.index,
+    layer.name,
+    layer.type,
+    Math.round((layer.inPoint || 0) * frameRate),
+    Math.round((layer.outPoint || 0) * frameRate),
+    layer.enabled ? 1 : 0,
+    layer.locked ? 1 : 0,
+    layer.selected ? 1 : 0
+  ].join(":"));
+
+  return `${compParts.join("|")}::${layerParts.join("|")}`;
+}
+
+function isTimelineInteractionActive() {
+  return !!(state.drag || state.playheadDrag);
+}
+
 function getSelectedLayerIndices() {
   if (!state.snapshot || !state.snapshot.layers) {
     return [];
@@ -513,6 +630,80 @@ function autoScrollTimeline(clientX) {
   els.timelineFrame.scrollLeft = Math.max(0, els.timelineFrame.scrollLeft + scrollDelta);
 }
 
+function getTimeFromClientX(clientX) {
+  const rect = els.timelineFrame.getBoundingClientRect();
+  const localX = clientX - rect.left + els.timelineFrame.scrollLeft - TIME_ZERO_X;
+  return Math.max(0, Math.min(getCompDuration(), localX / getTimelineScale()));
+}
+
+function beginPlayheadDrag(event) {
+  if (event.button !== 0 || !state.snapshot || !state.snapshot.ok) {
+    return;
+  }
+
+  focusPanel();
+  state.playheadDrag = {
+    moved: false,
+    lastHostUpdate: 0
+  };
+  document.body.classList.add("is-dragging-playhead");
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+async function updatePlayheadDrag(event) {
+  if (!state.playheadDrag) {
+    return;
+  }
+
+  autoScrollTimeline(event.clientX);
+  state.playheadDrag.moved = true;
+  const nextTime = getTimeFromClientX(event.clientX);
+  if (state.snapshot && state.snapshot.comp) {
+    state.snapshot.comp.currentTime = snapToFrame(nextTime);
+    renderTimeline();
+  }
+
+  const now = Date.now();
+  if (now - state.playheadDrag.lastHostUpdate > 90) {
+    state.playheadDrag.lastHostUpdate = now;
+    await callHost("setCompTime", { time: snapToFrame(nextTime) });
+  }
+}
+
+async function endPlayheadDrag(event) {
+  if (!state.playheadDrag) {
+    return;
+  }
+
+  const wasMoved = state.playheadDrag.moved;
+  state.playheadDrag = null;
+  document.body.classList.remove("is-dragging-playhead");
+
+  if (!state.snapshot || !state.snapshot.ok) {
+    return;
+  }
+
+  const nextTime = getTimeFromClientX(event.clientX);
+  await setCompTime(nextTime, wasMoved);
+}
+
+async function beginRulerPlayheadDrag(event) {
+  if (event.button !== 0 || !state.snapshot || !state.snapshot.ok || !state.snapshot.comp) {
+    return;
+  }
+
+  focusPanel();
+  state.playheadDrag = {
+    moved: true,
+    lastHostUpdate: Date.now()
+  };
+  document.body.classList.add("is-dragging-playhead");
+  event.preventDefault();
+  event.stopPropagation();
+  await setCompTime(getTimeFromClientX(event.clientX), false);
+}
+
 function renderRuler(comp, timelineWidth) {
   const duration = Math.max(1, comp.duration || 1);
   const tickCount = 6;
@@ -532,7 +723,11 @@ function renderTimeline() {
   const snapshot = state.snapshot;
   if (!snapshot || !snapshot.ok || !snapshot.comp) {
     els.layerList.innerHTML = "";
-    els.emptyState.style.display = "grid";
+    setEmptyState(
+      "Open a comp to build the timeline.",
+      "Ripple reads the active composition and turns AE layers into cleaner editorial lanes."
+    );
+    els.playhead.style.display = "none";
     return;
   }
 
@@ -543,10 +738,15 @@ function renderTimeline() {
   const timelineWidth = getTimelineWidth();
   const playheadLeft = TIME_ZERO_X + Math.max(0, Math.min(1, (comp.currentTime || 0) / duration)) * timelineWidth;
 
+  els.playhead.style.display = "block";
   els.playhead.style.left = `${playheadLeft}px`;
   els.layerList.style.width = `${timelineWidth + LAYER_LABEL_WIDTH + (LAYER_LIST_PADDING * 2)}px`;
   els.layerList.classList.toggle("compact", state.compactRows);
-  els.emptyState.style.display = layers.length ? "none" : "grid";
+  if (layers.length) {
+    els.emptyState.style.display = "none";
+  } else {
+    els.emptyState.style.display = "none";
+  }
 
   renderRuler(comp, timelineWidth);
 
@@ -585,11 +785,13 @@ function renderTimeline() {
   }
 }
 
-async function refreshTimeline() {
-  const result = await callHost("getTimelineSnapshot");
+function applyTimelineSnapshot(result, options = {}) {
+  const scrollLeft = els.timelineFrame.scrollLeft;
+  const scrollTop = els.timelineFrame.scrollTop;
   state.snapshot = result;
+  state.lastSnapshotSignature = getSnapshotSignature(result);
 
-  if (!result.ok) {
+  if (!result.ok && !options.silent) {
     showToast(result.error || "Open an active comp to use Ripple.");
   }
 
@@ -601,18 +803,74 @@ async function refreshTimeline() {
   }
 
   renderTimeline();
-  focusPanel();
+  if (options.preserveScroll) {
+    els.timelineFrame.scrollLeft = scrollLeft;
+    els.timelineFrame.scrollTop = scrollTop;
+  }
+}
+
+async function refreshTimeline(options = {}) {
+  const result = await callHost("getTimelineSnapshot");
+  applyTimelineSnapshot(result, options);
+  if (!options.silent) {
+    reclaimKeyboardFocus();
+  }
+}
+
+async function syncTimeline() {
+  if (state.syncInFlight || isTimelineInteractionActive()) {
+    return;
+  }
+
+  state.syncInFlight = true;
+  try {
+    const result = await callHost("getTimelineSnapshot");
+    const signature = getSnapshotSignature(result);
+    if (signature !== state.lastSnapshotSignature) {
+      applyTimelineSnapshot(result, { silent: true, preserveScroll: true });
+    }
+  } finally {
+    state.syncInFlight = false;
+  }
+}
+
+function startAutoSync() {
+  window.setInterval(syncTimeline, AUTO_SYNC_INTERVAL_MS);
 }
 
 async function runCommand(command) {
   const result = await callHost(command);
   if (!result.ok) {
     showToast(result.error || "Command failed.");
+    reclaimKeyboardFocus();
     return;
   }
 
   showToast(result.message || "Done.");
   await refreshTimeline();
+  reclaimKeyboardFocus();
+}
+
+async function setCompTime(time, shouldRefresh) {
+  const nextTime = Math.max(0, Math.min(getCompDuration(), snapToFrame(time)));
+  if (state.snapshot && state.snapshot.comp) {
+    state.snapshot.comp.currentTime = nextTime;
+    renderTimeline();
+  }
+
+  const result = await callHost("setCompTime", { time: nextTime });
+  if (!result.ok) {
+    showToast(result.error || "Could not move playhead.");
+    reclaimKeyboardFocus();
+    return false;
+  }
+
+  if (shouldRefresh) {
+    await refreshTimeline();
+  }
+
+  reclaimKeyboardFocus();
+  return true;
 }
 
 async function selectLayer(layerIndex) {
@@ -628,7 +886,7 @@ async function selectLayer(layerIndex) {
     });
     renderTimeline();
   }
-  focusPanel();
+  reclaimKeyboardFocus();
 
   return true;
 }
@@ -641,7 +899,7 @@ async function selectLayers(layerIndices) {
   }
 
   setLocalSelection(layerIndices);
-  focusPanel();
+  reclaimKeyboardFocus();
   return true;
 }
 
@@ -662,7 +920,7 @@ async function clearSelection() {
   }
 
   setLocalSelection([]);
-  focusPanel();
+  reclaimKeyboardFocus();
 }
 
 async function moveLayer(layerIndex, newInPoint) {
@@ -675,6 +933,7 @@ async function moveLayer(layerIndex, newInPoint) {
 
   showToast(result.message || "Layer moved.");
   await refreshTimeline();
+  reclaimKeyboardFocus();
 }
 
 async function moveLayers(layerIndices, delta) {
@@ -691,7 +950,7 @@ async function moveLayers(layerIndices, delta) {
 
   showToast(result.message || "Layers moved.");
   await refreshTimeline();
-  focusPanel();
+  reclaimKeyboardFocus();
 }
 
 async function trimLayer(layerIndex, payload) {
@@ -709,6 +968,7 @@ async function trimLayer(layerIndex, payload) {
 
   showToast(result.message || "Layer trimmed.");
   await refreshTimeline();
+  reclaimKeyboardFocus();
 }
 
 function getDragBounds(clip, layer) {
@@ -830,6 +1090,7 @@ function updateClipDrag(event) {
     return;
   }
 
+  moveDragReadout(event);
   autoScrollTimeline(event.clientX);
   const scrollDelta = els.timelineFrame.scrollLeft - state.drag.startScrollLeft;
   const deltaX = event.clientX - state.drag.startClientX + scrollDelta;
@@ -865,6 +1126,12 @@ function updateClipDrag(event) {
     } else {
       state.drag.clip.style.left = `${nextLeft}px`;
     }
+    showDragReadout(
+      event,
+      isGroupMove ? "Group move" : "Move",
+      formatTimecode(nextInPoint),
+      formatFrameDelta(snappedDelta / state.drag.bounds.scale)
+    );
     return;
   }
 
@@ -881,6 +1148,12 @@ function updateClipDrag(event) {
     }
     state.drag.clip.style.left = `${nextLeft}px`;
     state.drag.clip.style.width = `${state.drag.startWidth + (state.drag.startLeft - nextLeft)}px`;
+    showDragReadout(
+      event,
+      "Trim in",
+      formatTimecode(nextLeft / state.drag.bounds.scale),
+      formatFrameDelta((nextLeft - state.drag.startLeft) / state.drag.bounds.scale)
+    );
     return;
   }
 
@@ -894,6 +1167,12 @@ function updateClipDrag(event) {
     hideSnapGuide();
   }
   state.drag.clip.style.width = `${nextWidth}px`;
+  showDragReadout(
+    event,
+    "Trim out",
+    formatTimecode((state.drag.startLeft + nextWidth) / state.drag.bounds.scale),
+    formatFrameDelta((nextWidth - state.drag.startWidth) / state.drag.bounds.scale)
+  );
 }
 
 async function endClipDrag(event) {
@@ -906,6 +1185,7 @@ async function endClipDrag(event) {
   drag.clip.classList.remove("is-dragging", "is-move", "is-trim-start", "is-trim-end");
   document.body.classList.remove("is-dragging-clip", "is-move", "is-trim-start", "is-trim-end");
   hideSnapGuide();
+  hideDragReadout();
 
   if (!drag.moved) {
     if (drag.additiveSelection) {
@@ -965,6 +1245,7 @@ function cancelClipDrag() {
   drag.clip.classList.remove("is-dragging", "is-move", "is-trim-start", "is-trim-end");
   document.body.classList.remove("is-dragging-clip", "is-move", "is-trim-start", "is-trim-end");
   hideSnapGuide();
+  hideDragReadout();
 }
 
 function handleTimelineWheel(event) {
@@ -988,6 +1269,10 @@ function handleResize() {
 }
 
 function isTypingTarget(target) {
+  if (target === els.keySink) {
+    return false;
+  }
+
   return target && (
     target.tagName === "INPUT" ||
     target.tagName === "TEXTAREA" ||
@@ -999,11 +1284,19 @@ function isTypingTarget(target) {
 function focusPanel() {
   try {
     window.focus();
-    document.body.focus();
-    if (els.timelineFrame) {
-      els.timelineFrame.focus();
+    if (els.keySink) {
+      els.keySink.focus();
+      els.keySink.value = "";
+      return;
     }
+    document.body.focus();
   } catch (error) {}
+}
+
+function reclaimKeyboardFocus() {
+  focusPanel();
+  window.setTimeout(focusPanel, 0);
+  window.setTimeout(focusPanel, 40);
 }
 
 function getArrowDirection(event) {
@@ -1022,9 +1315,62 @@ function getArrowDirection(event) {
   return 0;
 }
 
+function getActionShortcut(event) {
+  if (event.altKey || event.metaKey || event.ctrlKey) {
+    return "";
+  }
+
+  const key = String(event.key || "").toLowerCase();
+  const code = event.keyCode || event.which;
+  const charCode = event.charCode || 0;
+
+  if (key === "s" || code === 83 || charCode === 83 || charCode === 115) {
+    return "splitAtPlayhead";
+  }
+
+  if (key === "[" || code === 219 || code === 91 || charCode === 91) {
+    return "trimStartToPlayhead";
+  }
+
+  if (key === "]" || code === 221 || code === 93 || charCode === 93) {
+    return "trimEndToPlayhead";
+  }
+
+  return "";
+}
+
+function consumeKeyEvent(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.cancelBubble = true;
+  event.returnValue = false;
+}
+
 async function handleKeyDown(event) {
+  if (event.defaultPrevented || isTypingTarget(event.target)) {
+    return;
+  }
+
+  const command = getActionShortcut(event);
+  if (command) {
+    const now = Date.now();
+    if (state.lastShortcut && state.lastShortcut.command === command && now - state.lastShortcut.time < 140) {
+      consumeKeyEvent(event);
+      return;
+    }
+
+    if (event.repeat) {
+      return;
+    }
+
+    state.lastShortcut = { command, time: now };
+    consumeKeyEvent(event);
+    await runCommand(command);
+    return;
+  }
+
   const direction = getArrowDirection(event);
-  if (event.defaultPrevented || isTypingTarget(event.target) || !direction) {
+  if (!direction) {
     return;
   }
 
@@ -1033,8 +1379,7 @@ async function handleKeyDown(event) {
     return;
   }
 
-  event.preventDefault();
-  event.stopPropagation();
+  consumeKeyEvent(event);
   const frameStep = event.shiftKey ? 10 : 1;
   await moveLayers(selected, direction * frameStep / getFrameRate());
 }
@@ -1049,15 +1394,28 @@ function bindEvents() {
   els.splitAtPlayhead.addEventListener("click", () => runCommand("splitAtPlayhead"));
   els.timelineFrame.addEventListener("wheel", handleTimelineWheel, { passive: false });
   els.timelineFrame.addEventListener("mousedown", handleTimelineMouseDown);
+  els.timeRuler.addEventListener("mousedown", beginRulerPlayheadDrag);
+  els.playhead.addEventListener("mousedown", beginPlayheadDrag);
   window.addEventListener("resize", handleResize);
   els.layerList.addEventListener("mousedown", beginClipDrag);
   document.addEventListener("mousemove", updateClipDrag);
+  document.addEventListener("mousemove", updatePlayheadDrag);
   document.addEventListener("mouseup", endClipDrag);
+  document.addEventListener("mouseup", endPlayheadDrag);
   document.addEventListener("mouseleave", cancelClipDrag);
+  els.keySink.addEventListener("keydown", handleKeyDown, true);
+  els.keySink.addEventListener("keypress", handleKeyDown, true);
+  els.keySink.addEventListener("input", () => {
+    els.keySink.value = "";
+  });
   window.addEventListener("keydown", handleKeyDown, true);
+  window.addEventListener("keypress", handleKeyDown, true);
   document.addEventListener("keydown", handleKeyDown, true);
+  document.addEventListener("keypress", handleKeyDown, true);
   document.body.addEventListener("keydown", handleKeyDown, true);
+  document.body.addEventListener("keypress", handleKeyDown, true);
   els.timelineFrame.addEventListener("keydown", handleKeyDown, true);
+  els.timelineFrame.addEventListener("keypress", handleKeyDown, true);
   window.onkeydown = handleKeyDown;
   document.onkeydown = handleKeyDown;
 
@@ -1101,3 +1459,4 @@ function bindEvents() {
 loadUiState();
 bindEvents();
 refreshTimeline();
+startAutoSync();

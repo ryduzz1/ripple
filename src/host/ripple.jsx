@@ -478,6 +478,27 @@ var Ripple = (function () {
     }
   }
 
+  function setCompTime(rawPayload) {
+    var payload = parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+      var time = Number(payload.time);
+
+      if (isNaN(time)) {
+        throw new Error("Invalid playhead time.");
+      }
+
+      comp.time = Math.max(0, Math.min(comp.duration, time));
+
+      return ok({
+        message: "Moved playhead."
+      });
+    } catch (error) {
+      return fail(error.message || String(error));
+    }
+  }
+
   function sortByInPoint(a, b) {
     if (a.inPoint === b.inPoint) {
       return a.index - b.index;
@@ -568,6 +589,7 @@ var Ripple = (function () {
     moveLayer: moveLayer,
     moveLayers: moveLayers,
     trimLayer: trimLayer,
+    setCompTime: setCompTime,
     splitAtPlayhead: splitAtPlayhead,
     trimStartToPlayhead: trimStartToPlayhead,
     trimEndToPlayhead: trimEndToPlayhead,
