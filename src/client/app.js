@@ -54,7 +54,8 @@ const els = {
   splitAtPlayhead: document.getElementById("splitAtPlayhead"),
   timelineFrame: document.querySelector(".timeline-frame"),
   timeRuler: document.getElementById("timeRuler"),
-  playhead: document.getElementById("playhead"),
+  playheadLine: document.getElementById("playheadLine"),
+  playheadHandle: document.getElementById("playheadHandle"),
   snapGuide: document.getElementById("snapGuide"),
   layerList: document.getElementById("layerList"),
   emptyState: document.getElementById("emptyState"),
@@ -729,7 +730,8 @@ function renderTimeline() {
       "Open a comp to build the timeline.",
       "Ripple reads the active composition and turns AE layers into cleaner editorial lanes."
     );
-    els.playhead.style.display = "none";
+    els.playheadLine.style.display = "none";
+    els.playheadHandle.style.display = "none";
     return;
   }
 
@@ -740,8 +742,10 @@ function renderTimeline() {
   const timelineWidth = getTimelineWidth();
   const playheadLeft = TIME_ZERO_X + Math.max(0, Math.min(1, (comp.currentTime || 0) / duration)) * timelineWidth;
 
-  els.playhead.style.display = "block";
-  els.playhead.style.left = `${playheadLeft}px`;
+  els.playheadLine.style.display = "block";
+  els.playheadHandle.style.display = "block";
+  els.playheadLine.style.left = `${playheadLeft}px`;
+  els.playheadHandle.style.left = `${playheadLeft}px`;
   els.layerList.style.width = `${timelineWidth + LAYER_LABEL_WIDTH + (LAYER_LIST_PADDING * 2)}px`;
   els.layerList.classList.toggle("compact", state.compactRows);
   if (layers.length) {
@@ -1128,7 +1132,7 @@ function beginMarqueeSelection(event) {
     event.button !== 0 ||
     event.target.closest(".clip") ||
     event.target.closest(".side-toolbar") ||
-    event.target.closest(".playhead") ||
+    event.target.closest(".playhead-handle") ||
     event.target.closest(".ruler")
   ) {
     return;
@@ -1496,7 +1500,7 @@ function bindEvents() {
   els.timelineFrame.addEventListener("wheel", handleTimelineWheel, { passive: false });
   els.timelineFrame.addEventListener("mousedown", beginMarqueeSelection);
   els.timeRuler.addEventListener("mousedown", beginRulerPlayheadDrag);
-  els.playhead.addEventListener("mousedown", beginPlayheadDrag);
+  els.playheadHandle.addEventListener("mousedown", beginPlayheadDrag);
   window.addEventListener("resize", handleResize);
   els.layerList.addEventListener("mousedown", beginClipDrag);
   document.addEventListener("mousemove", updateClipDrag);

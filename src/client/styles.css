@@ -263,20 +263,35 @@ p {
   border-left: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.playhead {
+.playhead-line {
   position: absolute;
-  top: 0;
+  top: 15px;
   bottom: 0;
   left: 140px;
   z-index: 6;
+  width: 2px;
+  background: #5caeff;
+  box-shadow:
+    0 0 0 1px rgba(92, 174, 255, 0.2),
+    0 0 10px rgba(92, 174, 255, 0.18);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.playhead-handle {
+  position: absolute;
+  top: 0;
+  left: 140px;
+  z-index: 7;
   width: 22px;
+  height: 18px;
   padding: 0;
   border: 0;
   background: transparent;
   transform: translateX(-50%);
 }
 
-.playhead::before {
+.playhead-handle::before {
   content: "";
   position: absolute;
   top: 3px;
@@ -292,27 +307,13 @@ p {
   transform: translateX(-50%);
 }
 
-.playhead::after {
-  content: "";
-  position: absolute;
-  top: 15px;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  background: #5caeff;
-  box-shadow:
-    0 0 0 1px rgba(92, 174, 255, 0.2),
-    0 0 10px rgba(92, 174, 255, 0.18);
-  transform: translateX(-50%);
-}
-
-.playhead:focus,
-.playhead:focus-visible {
+.playhead-handle:focus,
+.playhead-handle:focus-visible {
   outline: none;
 }
 
-.playhead:hover::before,
-.is-dragging-playhead .playhead::before {
+.playhead-handle:hover::before,
+.is-dragging-playhead .playhead-handle::before {
   background: linear-gradient(180deg, #7bbdff, #3a92fb);
 }
 
@@ -350,13 +351,13 @@ p {
 }
 
 .layer-row.selected {
-  border-color: rgba(255, 255, 255, 0.26);
+  border-color: rgba(255, 255, 255, 0.16);
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.014)),
     rgba(255, 255, 255, 0.018);
   box-shadow:
-    inset 3px 0 0 rgba(255, 255, 255, 0.72),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+    inset 2px 0 0 rgba(255, 255, 255, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025);
 }
 
 .compact .layer-row {
@@ -418,11 +419,10 @@ p {
 }
 
 .layer-row.selected .clip {
-  border-color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.58);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.95),
-    0 0 0 3px rgba(255, 255, 255, 0.22),
-    0 8px 18px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.32),
+    0 5px 12px rgba(0, 0, 0, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
@@ -487,29 +487,60 @@ p {
   position: absolute;
   top: 0;
   bottom: 0;
-  z-index: 2;
-  width: 9px;
+  z-index: 3;
+  width: 18px;
   cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  opacity: 0.72;
+  transition:
+    opacity var(--ease-fast),
+    background var(--ease-fast);
 }
 
 .trim-handle::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: rgba(255, 255, 255, 0.24);
+  top: 6px;
+  bottom: 6px;
+  width: 5px;
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.55));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 3px 8px rgba(0, 0, 0, 0.2);
   transition:
     background var(--ease-fast),
+    box-shadow var(--ease-fast),
+    opacity var(--ease-fast),
+    transform var(--ease-fast),
     width var(--ease-fast);
+}
+
+.trim-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  border-left: 1px solid rgba(0, 0, 0, 0.42);
+  border-right: 1px solid rgba(0, 0, 0, 0.28);
+  opacity: 0.45;
+  transform: translateY(-50%);
+  transition: opacity var(--ease-fast);
 }
 
 .trim-start {
   left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), transparent);
 }
 
 .trim-end {
   right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.12), transparent);
 }
 
 .trim-start::after {
@@ -520,11 +551,35 @@ p {
   right: 0;
 }
 
+.trim-start::before {
+  left: 1px;
+}
+
+.trim-end::before {
+  right: 1px;
+}
+
+.trim-handle:hover,
+.clip.is-trim-start .trim-start,
+.clip.is-trim-end .trim-end {
+  opacity: 1;
+}
+
 .trim-handle:hover::after,
 .clip.is-trim-start .trim-start::after,
 .clip.is-trim-end .trim-end::after {
-  width: 5px;
-  background: rgba(255, 255, 255, 0.48);
+  width: 7px;
+  background:
+    linear-gradient(180deg, #ffffff, rgba(255, 255, 255, 0.68));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.34),
+    0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.trim-handle:hover::before,
+.clip.is-trim-start .trim-start::before,
+.clip.is-trim-end .trim-end::before {
+  opacity: 0.75;
 }
 
 .clip-head {
