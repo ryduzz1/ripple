@@ -6,12 +6,13 @@
     <title>Ripple</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body tabindex="-1">
     <div class="shell shell-enter">
       <main class="panel-shell">
-        <div class="timeline-frame">
+        <div class="timeline-frame" tabindex="0">
           <div class="ruler" id="timeRuler"></div>
           <div class="playhead" id="playhead"></div>
+          <div id="snapGuide" class="snap-guide hidden"></div>
           <div id="layerList" class="layer-list"></div>
           <div id="emptyState" class="empty-state">
             <h3>Open a comp to build the timeline.</h3>
@@ -79,6 +80,7 @@
             </svg>
           </button>
         </aside>
+
       </main>
     </div>
 
@@ -104,6 +106,10 @@
           <label class="checkbox-field">
             <input id="compactRows" type="checkbox" />
             <span>Use compact layer rows</span>
+          </label>
+          <label class="checkbox-field">
+            <input id="enableSnapping" type="checkbox" checked />
+            <span>Enable snapping</span>
           </label>
         </div>
       </section>

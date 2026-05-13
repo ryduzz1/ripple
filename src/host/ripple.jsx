@@ -165,6 +165,234 @@ var Ripple = (function () {
     return true;
   }
 
+  function selectLayer(rawPayload) {
+    var payload = parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+      var layerIndex = Number(payload.layerIndex);
+
+      if (!layerIndex || layerIndex < 1 || layerIndex > comp.numLayers) {
+        throw new Error("Layer not found.");
+      }
+
+      for (var index = 1; index <= comp.numLayers; index += 1) {
+        comp.layer(index).selected = false;
+      }
+
+      comp.layer(layerIndex).selected = true;
+
+      return ok({
+        message: "Selected layer."
+      });
+    } catch (error) {
+      return fail(error.message || String(error));
+    }
+  }
+
+  function selectLayers(rawPayload) {
+    var payload = parsePayload(rawPayload);
+    var selected = payload.layerIndices || [];
+
+    try {
+      var comp = requireComp();
+
+      for (var index = 1; index <= comp.numLayers; index += 1) {
+        comp.layer(index).selected = false;
+      }
+
+      for (var selectedIndex = 0; selectedIndex < selected.length; selectedIndex += 1) {
+        var layerIndex = Number(selected[selectedIndex]);
+        if (layerIndex >= 1 && layerIndex <= comp.numLayers) {
+          comp.layer(layerIndex).selected = true;
+        }
+      }
+
+      return ok({
+        message: "Selected layers."
+      });
+    } catch (error) {
+      return fail(error.message || String(error));
+    }
+  }
+
+  function clearSelection(rawPayload) {
+    parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+
+      for (var index = 1; index <= comp.numLayers; index += 1) {
+        comp.layer(index).selected = false;
+      }
+
+      return ok({
+        message: "Cleared selection."
+      });
+    } catch (error) {
+      return fail(error.message || String(error));
+    }
+  }
+
+  function moveLayer(rawPayload) {
+    var payload = parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+      var layerIndex = Number(payload.layerIndex);
+      var newInPoint = Number(payload.newInPoint);
+
+      if (!layerIndex || layerIndex < 1 || layerIndex > comp.numLayers) {
+        throw new Error("Layer not found.");
+      }
+
+      if (isNaN(newInPoint)) {
+        throw new Error("Invalid layer time.");
+      }
+
+      var layer = comp.layer(layerIndex);
+      if (layer.locked) {
+        throw new Error("Layer is locked.");
+      }
+
+      var layerDuration = Math.max(0, layer.outPoint - layer.inPoint);
+      var maxInPoint = Math.max(0, comp.duration - layerDuration);
+      var clampedInPoint = Math.max(0, Math.min(newInPoint, maxInPoint));
+
+      app.beginUndoGroup("Ripple Move Layer");
+      moveLayerKeepingTrim(layer, clampedInPoint);
+      for (var index = 1; index <= comp.numLayers; index += 1) {
+        comp.layer(index).selected = false;
+      }
+      layer.selected = true;
+      app.endUndoGroup();
+
+      return ok({
+        message: "Moved layer."
+      });
+    } catch (error) {
+      try {
+        app.endUndoGroup();
+      } catch (undoError) {}
+      return fail(error.message || String(error));
+    }
+  }
+
+  function getClampedGroupDelta(comp, layers, requestedDelta) {
+    var minDelta = -999999;
+    var maxDelta = 999999;
+
+    for (var index = 0; index < layers.length; index += 1) {
+      minDelta = Math.max(minDelta, -layers[index].inPoint);
+      maxDelta = Math.min(maxDelta, comp.duration - layers[index].outPoint);
+    }
+
+    return Math.max(minDelta, Math.min(maxDelta, requestedDelta));
+  }
+
+  function moveLayers(rawPayload) {
+    var payload = parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+      var layerIndices = payload.layerIndices || [];
+      var requestedDelta = Number(payload.delta);
+      var layers = [];
+
+      if (isNaN(requestedDelta)) {
+        throw new Error("Invalid move amount.");
+      }
+
+      for (var index = 0; index < layerIndices.length; index += 1) {
+        var layerIndex = Number(layerIndices[index]);
+        if (layerIndex >= 1 && layerIndex <= comp.numLayers) {
+          var layer = comp.layer(layerIndex);
+          if (!layer.locked && layer.outPoint > layer.inPoint) {
+            layers.push(layer);
+          }
+        }
+      }
+
+      if (!layers.length) {
+        throw new Error("No movable selected layers.");
+      }
+
+      var delta = getClampedGroupDelta(comp, layers, requestedDelta);
+
+      app.beginUndoGroup("Ripple Move Layers");
+      for (var clearIndex = 1; clearIndex <= comp.numLayers; clearIndex += 1) {
+        comp.layer(clearIndex).selected = false;
+      }
+
+      for (var moveIndex = 0; moveIndex < layers.length; moveIndex += 1) {
+        layers[moveIndex].startTime += delta;
+        layers[moveIndex].selected = true;
+      }
+      app.endUndoGroup();
+
+      return ok({
+        message: "Moved " + layers.length + " layer(s)."
+      });
+    } catch (error) {
+      try {
+        app.endUndoGroup();
+      } catch (undoError) {}
+      return fail(error.message || String(error));
+    }
+  }
+
+  function trimLayer(rawPayload) {
+    var payload = parsePayload(rawPayload);
+
+    try {
+      var comp = requireComp();
+      var layerIndex = Number(payload.layerIndex);
+      var newInPoint = Number(payload.newInPoint);
+      var newOutPoint = Number(payload.newOutPoint);
+      var hasNewInPoint = !isNaN(newInPoint);
+      var hasNewOutPoint = !isNaN(newOutPoint);
+      var minimumDuration = 1 / Math.max(1, comp.frameRate || 30);
+
+      if (!layerIndex || layerIndex < 1 || layerIndex > comp.numLayers) {
+        throw new Error("Layer not found.");
+      }
+
+      if (!hasNewInPoint && !hasNewOutPoint) {
+        throw new Error("Invalid trim time.");
+      }
+
+      var layer = comp.layer(layerIndex);
+      if (layer.locked) {
+        throw new Error("Layer is locked.");
+      }
+
+      app.beginUndoGroup("Ripple Trim Layer");
+
+      if (hasNewInPoint) {
+        layer.inPoint = Math.max(0, Math.min(newInPoint, layer.outPoint - minimumDuration));
+      }
+
+      if (hasNewOutPoint) {
+        layer.outPoint = Math.max(layer.inPoint + minimumDuration, Math.min(newOutPoint, comp.duration));
+      }
+
+      for (var index = 1; index <= comp.numLayers; index += 1) {
+        comp.layer(index).selected = false;
+      }
+      layer.selected = true;
+      app.endUndoGroup();
+
+      return ok({
+        message: "Trimmed layer."
+      });
+    } catch (error) {
+      try {
+        app.endUndoGroup();
+      } catch (undoError) {}
+      return fail(error.message || String(error));
+    }
+  }
+
   function splitAtPlayhead(rawPayload) {
     parsePayload(rawPayload);
 
@@ -334,6 +562,12 @@ var Ripple = (function () {
 
   return {
     getTimelineSnapshot: getTimelineSnapshot,
+    selectLayer: selectLayer,
+    selectLayers: selectLayers,
+    clearSelection: clearSelection,
+    moveLayer: moveLayer,
+    moveLayers: moveLayers,
+    trimLayer: trimLayer,
     splitAtPlayhead: splitAtPlayhead,
     trimStartToPlayhead: trimStartToPlayhead,
     trimEndToPlayhead: trimEndToPlayhead,
