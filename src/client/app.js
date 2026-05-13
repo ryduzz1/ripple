@@ -38,6 +38,7 @@ const state = {
   didFitInitialComp: false,
   drag: null,
   playheadDrag: null,
+  marquee: null,
   lastShortcut: null,
   lastSnapshotSignature: "",
   syncInFlight: false
@@ -65,7 +66,8 @@ const els = {
   enableSnapping: document.getElementById("enableSnapping"),
   toast: document.getElementById("toast"),
   toolTip: document.getElementById("toolTip"),
-  dragReadout: document.getElementById("dragReadout")
+  dragReadout: document.getElementById("dragReadout"),
+  marquee: document.getElementById("marquee")
 };
 
 function getCSInterface() {
@@ -579,7 +581,7 @@ function getSnapshotSignature(snapshot) {
 }
 
 function isTimelineInteractionActive() {
-  return !!(state.drag || state.playheadDrag);
+  return !!(state.drag || state.playheadDrag || state.marquee);
 }
 
 function getSelectedLayerIndices() {
@@ -783,6 +785,7 @@ function renderTimeline() {
   if (Math.abs(state.zoom - getMinimumZoom()) < 0.001) {
     els.timelineFrame.scrollLeft = 0;
   }
+
 }
 
 function applyTimelineSnapshot(result, options = {}) {
@@ -1077,12 +1080,110 @@ function beginClipDrag(event) {
   event.preventDefault();
 }
 
-function handleTimelineMouseDown(event) {
-  if (event.button !== 0 || event.target.closest(".clip") || event.target.closest(".side-toolbar")) {
+function getMarqueeRect() {
+  if (!state.marquee) {
+    return null;
+  }
+
+  const left = Math.min(state.marquee.startX, state.marquee.currentX);
+  const top = Math.min(state.marquee.startY, state.marquee.currentY);
+  const width = Math.abs(state.marquee.currentX - state.marquee.startX);
+  const height = Math.abs(state.marquee.currentY - state.marquee.startY);
+
+  return { left, top, right: left + width, bottom: top + height, width, height };
+}
+
+function renderMarquee() {
+  const rect = getMarqueeRect();
+  if (!rect || !state.marquee.moved) {
+    els.marquee.classList.add("hidden");
     return;
   }
 
-  clearSelection();
+  els.marquee.style.left = `${rect.left}px`;
+  els.marquee.style.top = `${rect.top}px`;
+  els.marquee.style.width = `${rect.width}px`;
+  els.marquee.style.height = `${rect.height}px`;
+  els.marquee.classList.remove("hidden");
+}
+
+function rectsIntersect(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function getMarqueeSelection() {
+  const rect = getMarqueeRect();
+  if (!rect) {
+    return [];
+  }
+
+  return Array.from(els.layerList.querySelectorAll(".clip"))
+    .filter((clip) => rectsIntersect(rect, clip.getBoundingClientRect()))
+    .map((clip) => Number(clip.dataset.layerIndex))
+    .filter(Boolean);
+}
+
+function beginMarqueeSelection(event) {
+  if (
+    event.button !== 0 ||
+    event.target.closest(".clip") ||
+    event.target.closest(".side-toolbar") ||
+    event.target.closest(".playhead") ||
+    event.target.closest(".ruler")
+  ) {
+    return;
+  }
+
+  focusPanel();
+  state.marquee = {
+    startX: event.clientX,
+    startY: event.clientY,
+    currentX: event.clientX,
+    currentY: event.clientY,
+    baseSelection: event.shiftKey || event.metaKey || event.ctrlKey ? getSelectedLayerIndices() : [],
+    moved: false
+  };
+  document.body.classList.add("is-marquee-selecting");
+  event.preventDefault();
+}
+
+function updateMarqueeSelection(event) {
+  if (!state.marquee) {
+    return;
+  }
+
+  state.marquee.currentX = event.clientX;
+  state.marquee.currentY = event.clientY;
+  if (Math.abs(event.clientX - state.marquee.startX) > 3 || Math.abs(event.clientY - state.marquee.startY) > 3) {
+    state.marquee.moved = true;
+  }
+
+  renderMarquee();
+}
+
+async function endMarqueeSelection() {
+  if (!state.marquee) {
+    return;
+  }
+
+  const marquee = state.marquee;
+  const selected = marquee.moved ? getMarqueeSelection() : [];
+  const nextSelection = marquee.moved
+    ? Array.from(new Set(marquee.baseSelection.concat(selected)))
+    : [];
+
+  state.marquee = null;
+  els.marquee.classList.add("hidden");
+  document.body.classList.remove("is-marquee-selecting");
+
+  if (nextSelection.length) {
+    await selectLayers(nextSelection);
+    return;
+  }
+
+  if (!marquee.moved) {
+    await clearSelection();
+  }
 }
 
 function updateClipDrag(event) {
@@ -1393,14 +1494,16 @@ function bindEvents() {
   els.settingsBackdrop.addEventListener("click", () => setSettingsOpen(false));
   els.splitAtPlayhead.addEventListener("click", () => runCommand("splitAtPlayhead"));
   els.timelineFrame.addEventListener("wheel", handleTimelineWheel, { passive: false });
-  els.timelineFrame.addEventListener("mousedown", handleTimelineMouseDown);
+  els.timelineFrame.addEventListener("mousedown", beginMarqueeSelection);
   els.timeRuler.addEventListener("mousedown", beginRulerPlayheadDrag);
   els.playhead.addEventListener("mousedown", beginPlayheadDrag);
   window.addEventListener("resize", handleResize);
   els.layerList.addEventListener("mousedown", beginClipDrag);
   document.addEventListener("mousemove", updateClipDrag);
+  document.addEventListener("mousemove", updateMarqueeSelection);
   document.addEventListener("mousemove", updatePlayheadDrag);
   document.addEventListener("mouseup", endClipDrag);
+  document.addEventListener("mouseup", endMarqueeSelection);
   document.addEventListener("mouseup", endPlayheadDrag);
   document.addEventListener("mouseleave", cancelClipDrag);
   els.keySink.addEventListener("keydown", handleKeyDown, true);
